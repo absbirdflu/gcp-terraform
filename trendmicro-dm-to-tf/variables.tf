@@ -23,6 +23,21 @@ variable "deployment_name" {
   default     = "trend-micro-fss"  
 }
 
+variable "trend_micro_fss_license" {
+  description = "Default license string"
+  default     = "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9.eyJpc3MiOiJ3d3cudHJlbmRtaWNyby5jb20iLCJleHAiOjE2NjQ3Njk2MDAsIm5iZiI6MTY1NTM2NjU4NCwiaWF0IjoxNjU1MzY2NTg0LCJzdWIiOiJnY3AtcHJldmlldy1saWNlbnNlIiwiY2xvdWRPbmUiOnsiYWNjb3VudCI6IjU2NDUwNTA5NDE4NyJ9fQ.CaoPvyzly9C5izjmdCxjYmQZpKY8p4wleHGqtORmhpin6r9Ek5g8KyrPy2Q40LOzt0fKf680ZbCi7JROGJ4HTi-sJVX7uyKsn9y8NBGhNpBYQplKck5DibYltbUFUOI5bPubHN0tjwg5_JFiE7PfDYls8X_wDHLq1nxnHLz1jhzRXbNE-OR01faM_NdV2IqZTV_Px7O75VC7W6GaSFZ1jK0U4Yk0IjBQzn-KX3En2oeF16FmADSof2B_TkcYFKizGhoO1oohzEKEOEwfX3Nyx6-BvyNE7tmgR5YJUdUO8fLWZF0Io8Qjoh44xjrj2rpXvqN-1_q-anE_dh6LnBImTwvnzBZI1hZgNnB7REbwBZAlLhc0RjcbPAC6Fw16xgIebBHB0pz4T4QTDPt9pcm_efQxiXbg9DjQFN9DwkPKJSt6XvFJO5yhu3pFXjosHjPSbwL4evnW_11rvrxwjfPb-oK8MOjb2sImgokv5yL2E4JyxeQ7y4vIizUMkhrIhG_bpakdGgbHJm6kOuVBkUY5yKssnRIh--Bgdtb5bH69fYxoN1JKljiLW7KDKvxq1MsQOWH-u6tBaUzl85p6Ehd-DmtecsQFq0gzxTD28JalIvRsZ5-fVtR6o2Akp02Za4GeTUZep6iyLYC8SEBj3cAm2LVMcpvPm-6OAqhLyzZN4wE"
+}
+
+variable "trend_micro_fss_region" {
+  description = "Default CloudOne Region"
+  default     = "us-1"
+}
+
+variable "trend_micro_fss_account" {
+  description = "Default CloudOne Account"
+  default     = "manger-service@tf-testing-357707.iam.gserviceaccount.com"
+}
+
 variable "gcp_services_list" {
   description = "Google APIs need to be enabled"
   type        = set(string)

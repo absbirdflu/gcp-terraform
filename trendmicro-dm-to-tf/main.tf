@@ -6,6 +6,25 @@ provider "google" {
 
 data "google_project" "project" {}
 
+resource "null_resource" "gcp_scanner" {
+  provisioner "local-exec" {
+    command = "curl https://file-storage-security.s3.amazonaws.com/latest/cloud-functions/gcp-scanner.zip --output gcp-scanner.zip"
+  }
+}
+
+resource "null_resource" "gcp_scanner_dlt" {
+  provisioner "local-exec" {
+    command = "curl https://file-storage-security.s3.amazonaws.com/latest/cloud-functions/gcp-scanner-dlt.zip --output gcp-scanner-dlt.zip"
+  }
+}
+
+resource "null_resource" "gcp_scanner_pattern_updater" {
+  provisioner "local-exec" {
+    command = "curl https://file-storage-security.s3.amazonaws.com/latest/cloud-functions/gcp-scanner-pattern-updater.zip --output gcp-scanner-pattern-updater.zip"
+  }
+}
+
+
 /**
  Enable Google APIs
 **/ 
@@ -215,7 +234,7 @@ resource "google_service_account_iam_binding" "scanner_gcf_service_account_iam" 
   role               = "projects/${data.google_project.project.project_id}/roles/${google_project_iam_custom_role.trend_micro_fss_service_account_management_role.role_id}"
 
   members = [
-    "serviceAccount:${google_service_account.scanner_gcf_service_account.email}",
+    "serviceAccount:${google_service_account.scanner_gcf_service_account.email}"
   ]
 }
 
@@ -233,7 +252,7 @@ resource "google_service_account_iam_binding" "updater_gcf_service_account_iam" 
   role               = "projects/${data.google_project.project.project_id}/roles/${google_project_iam_custom_role.trend_micro_fss_service_account_management_role.role_id}"
 
   members = [
-    "serviceAccount:${google_service_account.updater_gcf_service_account.email}",
+    "serviceAccount:${google_service_account.updater_gcf_service_account.email}"
   ]
 }
 
@@ -265,7 +284,7 @@ data "google_iam_policy" "scanner_topic_iam_policy" {
   binding {
     role = "roles/pubsub.publisher"
     members = [
-      "serviceAccount:${google_service_account.scanner_gcf_service_account.email}",
+      "serviceAccount:${google_service_account.scanner_gcf_service_account.email}"
     ]
   }
 }
@@ -318,58 +337,197 @@ resource "google_pubsub_topic_iam_policy" "scanner_topic_dlt_policy" {
 }
 
 /** 
-TO-DO: SECRET_STRING & Secrets manager
-
-resource "google_secret_manager_secret" "secret-basic" {
-  secret_id = "secret-version"
-
-  labels = {
-    label = "my-label"
-  }
+SECRET_STRING & Secrets manager
+**/ 
+resource "google_secret_manager_secret" "trend_micro_fss_secret" {
+  secret_id = "${var.deployment_name}-scanner-secrets"
 
   replication {
-    automatic = true
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
   }
+
+  depends_on = [
+    google_project_service.gcp_services
+  ]
 }
 
+resource "google_secret_manager_secret_version" "trend_micro_fss_secret_version" {
+  secret = google_secret_manager_secret.trend_micro_fss_secret.id
 
-resource "google_secret_manager_secret_version" "secret-version-basic" {
-  secret = google_secret_manager_secret.secret-basic.id
+  secret_data = jsonencode({
+    LICENSE = var.trend_micro_fss_license
+    FSS_API_ENDPOINT = "https://filestorage.${var.trend_micro_fss_region}.cloudone.trendmicro.com/api/"
+    LICENSE_SUBJECT = "gcp-preview-license"
+    CLOUD_ONE_ACCOUNT = var.trend_micro_fss_account
+  })
 
-  secret_data = "secret-data"
+  depends_on = [
+    google_secret_manager_secret.trend_micro_fss_secret
+  ]
 }
-**/ 
 
 /** 
-TO-DO: Allow scanner service and manager service account to access the secrets
+Allow scanner service and manager service account to access the secrets
+**/
+resource "google_secret_manager_secret_iam_binding" "scanner_gcf_service_account_secret_iam_binding" {
+  project = google_secret_manager_secret.trend_micro_fss_secret.project
+  secret_id = google_secret_manager_secret.trend_micro_fss_secret.secret_id
+  role = "roles/secretmanager.secretAccessor"
+  members = [
+    "serviceAccount:${google_service_account.scanner_gcf_service_account.email}"
+  ]
 
-data "google_iam_policy" "admin" {
-  binding {
-    role = "roles/secretmanager.secretAccessor"
-    members = [
-      "user:jane@example.com",
-    ]
-  }
+  depends_on = [
+    google_project_service.gcp_services,
+    google_secret_manager_secret.trend_micro_fss_secret,
+    google_service_account.scanner_gcf_service_account
+  ]
 }
 
-resource "google_secret_manager_secret_iam_policy" "policy" {
-  project = google_secret_manager_secret.secret-basic.project
-  secret_id = google_secret_manager_secret.secret-basic.secret_id
-  policy_data = data.google_iam_policy.admin.policy_data
+resource "google_secret_manager_secret_iam_binding" "manager_service_account_secret_iam_binding" {
+  project = google_secret_manager_secret.trend_micro_fss_secret.project
+  secret_id = google_secret_manager_secret.trend_micro_fss_secret.secret_id
+  role    = "projects/${data.google_project.project.project_id}/roles/${google_project_iam_custom_role.trend_micro_fss_secret_management_role.role_id}"
+  members = [
+    "serviceAccount:${var.manager_service_account}"
+  ]
+
+  depends_on = [
+    google_project_service.gcp_services,
+    google_secret_manager_secret.trend_micro_fss_secret
+  ]
 }
-**/ 
+ 
 
 /** 
 TO-DO: Deploy Scanner function
- 
-resource "google_cloudfunctions_function" "scanner_function" {
+**/
+
+resource "google_storage_bucket" "function_bucket" {
+    name     = "${var.project_id}-function"
+    location = var.region
+}
+
+/**
+data "archive_file" "gcp_scanner_source" {
+    type        = "zip"
+    source_file = "gcp-scanner.zip"
+    output_path = "gcp-scanner.zip"
 
   depends_on = [
-    google_pubsub_topic.scanner_deploy_scanner_topic,
-    google_service_account.scanner_deploy_scanner_service_account
+    null_resource.gcp_scanner
+  ]
+}
+
+data "archive_file" "gcp_scanner_dlt_source" {
+    type        = "zip"
+    source_file = "gcp-scanner-dlt.zip"
+    output_path = "gcp-scanner-dlt.zip"
+
+  depends_on = [
+    null_resource.gcp_scanner_dlt
+  ]
+}
+
+data "archive_file" "gcp_scanner_pattern_updater_source" {
+    type        = "zip"
+    source_file = "gcp-scanner-pattern-updater.zip"
+    output_path = "gcp-scanner-pattern-updater.zip"
+
+  depends_on = [
+    null_resource.gcp_scanner_pattern_updater
   ]
 }
 **/
+
+resource "google_storage_bucket_object" "gcp_scanner_source_zip" {
+    source       = "gcp-scanner.zip"
+    content_type = "application/zip"
+
+    name         = "src-gcp-scanner.zip"
+    bucket       = google_storage_bucket.function_bucket.name
+
+    depends_on   = [
+        google_storage_bucket.function_bucket
+    ]
+}
+
+resource "google_storage_bucket_object" "gcp_scanner_dlt_source_zip" {
+    source       = "gcp-scanner-dlt.zip"
+    content_type = "application/zip"
+
+    name         = "src-gcp-scanner-dlt.zip"
+    bucket       = google_storage_bucket.function_bucket.name
+
+    depends_on   = [
+        google_storage_bucket.function_bucket
+    ]
+}
+
+resource "google_storage_bucket_object" "gcp_scanner_pattern_updater_source_zip" {
+    source       = "gcp-scanner-pattern-updater.zip"
+    content_type = "application/zip"
+
+    name         = "src-gcp-scanner-pattern-updater.zip"
+    bucket       = google_storage_bucket.function_bucket.name
+
+    depends_on   = [
+        google_storage_bucket.function_bucket
+    ]
+}
+ 
+resource "google_cloudfunctions_function" "scanner_function" {
+
+  name = "${var.deployment_name}-scanner"
+
+  source_archive_bucket = google_storage_bucket.function_bucket.name
+  source_archive_object = google_storage_bucket_object.gcp_scanner_source_zip.name
+
+  entry_point = "main"
+  runtime = "python38"
+  available_memory_mb = 2048
+  service_account_email = google_service_account.scanner_gcf_service_account.email
+  timeout = 120
+  region = var.region
+
+  environment_variables = {
+    "DEPLOYMENT_NAME" = var.deployment_name
+    "LD_LIBRARY_PATH" = "/workspace:/workspace/lib"
+    "PATTERN_PATH" = "./patterns"
+    "PROJECT_ID" = var.project_id
+    "REGION" = var.region
+  }
+
+  secret_environment_variables {
+    key = "SCANNER_SECRETS"
+    project_id = google_secret_manager_secret.trend_micro_fss_secret.project
+    secret = google_secret_manager_secret.trend_micro_fss_secret.secret_id
+    version = "1"
+  }
+
+  event_trigger {
+    event_type = "providers/cloud.pubsub/eventTypes/topic.publish"
+    resource = google_pubsub_topic.scanner_topic.name
+  }
+
+  timeouts {
+    create = "60m"
+    delete = "2h"
+  }
+
+  depends_on = [
+    google_storage_bucket_object.gcp_scanner_source_zip,
+    google_pubsub_topic.scanner_topic,
+    google_service_account.scanner_gcf_service_account,
+    google_secret_manager_secret_version.trend_micro_fss_secret_version,
+    google_secret_manager_secret_iam_binding.scanner_gcf_service_account_secret_iam_binding
+  ]
+}
+
 
 /** 
 TO-DO: Deploy Scanner DLT function
